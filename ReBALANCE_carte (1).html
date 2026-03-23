@@ -579,8 +579,16 @@ select.form-input { appearance: none; background-image: url("data:image/svg+xml,
       </div>
     </div>
 
-    <button class="pdf-btn" onclick="exportPDF()">📄 このカルテをPDFで出力（LINE共有）</button>
-    <button class="save-btn" onclick="saveRecord()">この施術記録を保存</button>
+    <div style="background:#f0f8f4;border:1px solid #27ae60;border-radius:8px;padding:14px 16px;margin:16px 0 8px;">
+      <p style="font-size:11px;color:#1a5c40;font-weight:700;margin-bottom:8px;">📋 推奨手順</p>
+      <p style="font-size:10px;color:#555;line-height:1.8;">
+        ① PDF出力 → LINEでお客様へ送信<br>
+        ② 写真を削除（容量節約のため）<br>
+        ③ 保存する
+      </p>
+    </div>
+    <button class="pdf-btn" onclick="exportPDF()">📄 STEP1｜PDFで出力（LINE共有）</button>
+    <button class="save-btn" onclick="saveRecord()">STEP2｜この施術記録を保存</button>
     <button class="delete-btn" id="delete-record-btn" onclick="deleteRecord()" style="display:none">この記録を削除する</button>
   </div>
 </div>
@@ -882,6 +890,22 @@ function openRecord(rid) {
 }
 
 function saveRecord() {
+  // PDF出力を促す確認ダイアログ
+  const hasBefore = beforePhotosB64.length > 0;
+  const hasAfter  = afterPhotosB64.length > 0;
+  const hasPhotos = hasBefore || hasAfter;
+
+  if (hasPhotos) {
+    const ok = confirm(
+      '📄 PDF出力は完了していますか？\n\n' +
+      '写真データはブラウザ容量の関係で保存できない場合があります。\n' +
+      'PDF出力 → 写真を削除 → 保存 の順を推奨します。\n\n' +
+      '【このまま保存する】→ OK\n' +
+      '【PDF出力に戻る】→ キャンセル'
+    );
+    if (!ok) { exportPDF(); return; }
+  }
+
   const data = load();
   const c = data.clients.find(x => x.id === currentClientId);
   if (!c) return;
@@ -936,15 +960,36 @@ function deleteRecord() {
 // ================================================================
 // 写真処理
 // ================================================================
-function readFiles(files, arr, previewId) {
-  const promises = Array.from(files).map(f => new Promise(res => {
+// 写真圧縮（最大800px・JPEG品質0.7に変換してlocalStorage負荷を軽減）
+function compressImage(file, maxW=800, maxH=800, quality=0.7) {
+  return new Promise(res => {
     const reader = new FileReader();
-    reader.onload = e => res(e.target.result);
-    reader.readAsDataURL(f);
-  }));
+    reader.onload = e => {
+      const img = new window.Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxW || h > maxH) {
+          const ratio = Math.min(maxW/w, maxH/h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        res(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function readFiles(files, arr, previewId) {
+  const promises = Array.from(files).map(f => compressImage(f));
   Promise.all(promises).then(results => {
     results.forEach(b64 => arr.push(b64));
     renderPhotoPreview(previewId, arr, arr);
+    toast('写真を圧縮して追加しました');
   });
 }
 
